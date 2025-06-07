@@ -83,7 +83,7 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
     obj_values = []
 
     max_outer_iter = 50
-    tolerance = 1e-8
+    tolerance = 1e-10
 
     # Check initial feasibility
     for i, constraint in enumerate(ineq_constraints):
