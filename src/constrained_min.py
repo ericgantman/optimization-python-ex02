@@ -1,27 +1,83 @@
 import numpy as np
 
 
+class BarrierObjective:
+    """Helper class to create barrier objective functions."""
+
+    def __init__(self, original_func, ineq_constraints, t):
+        self.original_func = original_func
+        self.ineq_constraints = ineq_constraints
+        self.t = t
+
+    def __call__(self, x_var, hessian=False):
+        """Evaluate barrier objective function."""
+        # Get original objective
+        if hessian:
+            result = self.original_func(x_var, hessian=True)
+            if len(result) == 3:
+                f_val, f_grad, f_hess = result
+            else:
+                f_val, f_grad = result
+                f_hess = np.zeros((len(x_var), len(x_var)))
+        else:
+            f_val, f_grad = self.original_func(x_var, hessian=False)
+            f_hess = None
+
+        # Add log-barrier terms
+        barrier_val = 0.0
+        barrier_grad = np.zeros_like(x_var)
+        barrier_hess = np.zeros((len(x_var), len(x_var))) if hessian else None
+
+        for constraint in self.ineq_constraints:
+            if hessian:
+                g_result = constraint(x_var, hessian=True)
+                if len(g_result) == 3:
+                    g_val, g_grad, g_hess = g_result
+                else:
+                    g_val, g_grad = g_result
+                    g_hess = np.zeros((len(x_var), len(x_var)))
+            else:
+                g_val, g_grad = constraint(x_var, hessian=False)
+                g_hess = None
+
+            # Check constraint satisfaction
+            if g_val >= 0:
+                if hessian:
+                    return (np.inf, np.full_like(x_var, np.inf), None)
+                else:
+                    return (np.inf, np.full_like(x_var, np.inf))
+
+            # Add log-barrier terms: -log(-g(x))
+            barrier_val -= np.log(-g_val)
+            barrier_grad -= g_grad / g_val
+
+            if hessian and g_hess is not None:
+                barrier_hess -= (np.outer(g_grad, g_grad) /
+                                 (g_val**2) + g_hess / g_val)
+
+        # Combine original objective with barrier
+        total_val = self.t * f_val + barrier_val
+        total_grad = self.t * f_grad + barrier_grad
+
+        if hessian:
+            if f_hess is None or np.all(f_hess == 0):
+                f_hess = np.zeros((len(x_var), len(x_var)))
+
+            total_hess = self.t * f_hess + barrier_hess
+            regularization = max(1e-8, 1.0 / self.t) * np.eye(len(x_var))
+            total_hess += regularization
+
+            return total_val, total_grad, total_hess
+        else:
+            return total_val, total_grad
+
+
 def interior_pt(func, ineq_constraints, eq_constraints_mat,
                 eq_constraints_rhs, x0):
-    """
-    Interior point method using log-barrier approach.
-
-    Args:
-        func: Objective function with interface
-            (x, hessian=False) -> (f_val, f_grad, f_hess)
-        ineq_constraints: List of inequality constraint functions g_i(x) <= 0
-        eq_constraints_mat: Matrix A for equality constraints Ax = b
-            (can be None)
-        eq_constraints_rhs: Vector b for equality constraints Ax = b
-            (can be None)
-        x0: Initial interior point
-
-    Returns:
-        tuple: (final_x, objective_values_list, path_points_list)
-    """
+    """Interior point method using log-barrier approach."""
     x = np.array(x0, dtype=float)
-    t = 1.0  # Initial barrier parameter
-    mu = 10.0  # Barrier parameter multiplier
+    t = 1.0
+    mu = 10.0
 
     path = [x.copy()]
     obj_values = []
@@ -36,79 +92,13 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
             print(
                 f"Warning: Initial point may not be strictly feasible for "
                 f"constraint {i}: g(x) = {g_val}")
-            # Try to move the point slightly into the feasible region
             if g_val >= 0:
-                # Move point away from constraint boundary
                 g_grad = constraint(x)[1]
                 x = x - 0.01 * g_grad / (np.linalg.norm(g_grad) + 1e-12)
 
     for outer_iter in range(max_outer_iter):
-        # Create barrier function
-        def barrier_objective(x_var, hessian=False):
-            # Get original objective
-            if hessian:
-                result = func(x_var, hessian=True)
-                if len(result) == 3:
-                    f_val, f_grad, f_hess = result
-                else:
-                    f_val, f_grad = result
-                    f_hess = np.zeros((len(x_var), len(x_var)))
-            else:
-                f_val, f_grad = func(x_var, hessian=False)
-                f_hess = None
-
-            # Add log-barrier terms
-            barrier_val = 0.0
-            barrier_grad = np.zeros_like(x_var)
-            barrier_hess = np.zeros(
-                (len(x_var), len(x_var))) if hessian else None
-
-            for constraint in ineq_constraints:
-                if hessian:
-                    g_result = constraint(x_var, hessian=True)
-                    if len(g_result) == 3:
-                        g_val, g_grad, g_hess = g_result
-                    else:
-                        g_val, g_grad = g_result
-                        g_hess = np.zeros((len(x_var), len(x_var)))
-                else:
-                    g_val, g_grad = constraint(x_var, hessian=False)
-                    g_hess = None
-
-                # Check constraint satisfaction
-                if g_val >= 0:
-                    if hessian:
-                        return (np.inf, np.full_like(x_var, np.inf), None)
-                    else:
-                        return (np.inf, np.full_like(x_var, np.inf))
-
-                # Add log-barrier terms: -log(-g(x))
-                barrier_val -= np.log(-g_val)
-                barrier_grad -= g_grad / g_val
-
-                if hessian and g_hess is not None:
-                    barrier_hess -= (np.outer(g_grad, g_grad) /
-                                     (g_val**2) + g_hess / g_val)
-
-            # Combine original objective with barrier
-            total_val = t * f_val + barrier_val
-            total_grad = t * f_grad + barrier_grad
-
-            if hessian:
-                # Handle case where original function has zero/None hessian
-                # (like LP)
-                if f_hess is None or np.all(f_hess == 0):
-                    f_hess = np.zeros((len(x_var), len(x_var)))
-
-                total_hess = t * f_hess + barrier_hess
-
-                # Add regularization for numerical stability
-                regularization = max(1e-8, 1.0 / t) * np.eye(len(x_var))
-                total_hess += regularization
-
-                return total_val, total_grad, total_hess
-            else:
-                return total_val, total_grad
+        # Create barrier objective using helper class
+        barrier_objective = BarrierObjective(func, ineq_constraints, t)
 
         # Solve constrained Newton step
         x = newton_equality_constrained(
@@ -124,7 +114,6 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
         if duality_gap < tolerance:
             break
 
-        # Update barrier parameter
         t *= mu
 
     return x, obj_values, path
@@ -199,7 +188,7 @@ def backtracking_line_search(func, x, dx, grad, alpha_init=1.0, rho=0.5,
             if not (np.isnan(f_new) or np.isinf(f_new)):
                 if f_new <= f0 + c * alpha * grad_dot_dx:
                     return alpha
-        except:
+        except (ValueError, ArithmeticError, np.linalg.LinAlgError):
             pass
         alpha *= rho
         if alpha < 1e-10:
