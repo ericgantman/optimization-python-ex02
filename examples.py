@@ -68,14 +68,14 @@ def lp_objective(x, hessian=False):
     f_grad = np.array([-1.0, -1.0])
 
     if hessian:
-        f_hess = np.zeros((2, 2))  # Linear function has zero Hessian
+        f_hess = np.zeros((2, 2))
         return f_val, f_grad, f_hess
     return f_val, f_grad
 
 
 def lp_ineq_constraint_1(x, hessian=False):
-    """Constraint: 1 - x - y ≤ 0 (from y ≥ -x + 1, i.e., x + y ≥ 1)"""
-    g_val = 1 - x[0] - x[1]
+    """Constraint: -x - y + 1 ≤ 0 (from y ≥ -x + 1)"""
+    g_val = -x[0] - x[1] + 1
     g_grad = np.array([-1.0, -1.0])
 
     if hessian:

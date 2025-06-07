@@ -75,14 +75,12 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
                     g_val, g_grad = constraint(x_var, hessian=False)
                     g_hess = None
 
-                # Check constraint satisfaction with small tolerance
-                if g_val >= -1e-12:
-                    penalty = 1e6 * (g_val + 1e-12)**2
+                # Check constraint satisfaction
+                if g_val >= 0:
                     if hessian:
-                        penalty_hess = f_hess + 1e6 * np.eye(len(x_var))
-                        return (f_val + penalty, f_grad, penalty_hess)
+                        return (np.inf, np.full_like(x_var, np.inf), None)
                     else:
-                        return (f_val + penalty, f_grad)
+                        return (np.inf, np.full_like(x_var, np.inf))
 
                 # Add log-barrier terms: -log(-g(x))
                 barrier_val -= np.log(-g_val)
@@ -113,40 +111,13 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
                 return total_val, total_grad
 
         # Solve constrained Newton step
-        try:
-            x_new = newton_equality_constrained(
-                barrier_objective, eq_constraints_mat,
-                eq_constraints_rhs, x)
-
-            # Check if new point is valid
-            if not np.any(np.isnan(x_new)) and not np.any(np.isinf(x_new)):
-                x = x_new
-            else:
-                print(
-                    f"Warning: Invalid solution at iteration {outer_iter}, "
-                    f"using previous point")
-                break
-
-        except Exception as e:
-            print(
-                f"Warning: Newton step failed at iteration {outer_iter}: {e}")
-            break
+        x = newton_equality_constrained(
+            barrier_objective, eq_constraints_mat, eq_constraints_rhs, x)
 
         # Store results
-        try:
-            obj_val, _ = func(x)
-            if np.isnan(obj_val) or np.isinf(obj_val):
-                print(
-                    f"Warning: Invalid objective value at iteration "
-                    f"{outer_iter}")
-                break
-            obj_values.append(obj_val)
-            path.append(x.copy())
-        except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError):
-            print(
-                f"Warning: Could not evaluate objective at iteration "
-                f"{outer_iter}")
-            break
+        obj_val, _ = func(x)
+        obj_values.append(obj_val)
+        path.append(x.copy())
 
         # Check stopping criterion
         duality_gap = len(ineq_constraints) / t
@@ -156,40 +127,6 @@ def interior_pt(func, ineq_constraints, eq_constraints_mat,
         # Update barrier parameter
         t *= mu
 
-    # Final step: ensure feasibility with proper projection
-    # Check if any inequality constraints are violated
-    violations = []
-    for i, constraint in enumerate(ineq_constraints):
-        g_val, _ = constraint(x)
-        if g_val > 1e-12:
-            violations.append(i)
-
-    if violations:
-        print(
-            f"Warning: Projecting {len(violations)} constraint(s) back to "
-            f"feasible region")
-
-        # For bound constraints -x[i] <= 0 (i.e., x[i] >= 0), project to
-        # boundary
-        for i in violations:
-            if i < len(x):  # Assume first len(x) constraints are bounds
-                x[i] = 0.0
-
-        # Re-satisfy equality constraints if they exist
-        if eq_constraints_mat is not None and eq_constraints_rhs is not None:
-            # Simple adjustment: distribute the violation among free variables
-            eq_violation = eq_constraints_mat @ x - eq_constraints_rhs
-            eq_violation_val = eq_violation if np.isscalar(
-                eq_violation) else eq_violation[0]
-            if abs(eq_violation_val) > 1e-12:
-                # Find variables that are not at bounds
-                free_vars = [i for i in range(len(x)) if i not in violations]
-                if free_vars:
-                    # Distribute violation equally among free variables
-                    adjustment = eq_violation_val / len(free_vars)
-                    for i in free_vars:
-                        x[i] -= adjustment
-
     return x, obj_values, path
 
 
@@ -197,29 +134,16 @@ def newton_equality_constrained(func, A, b, x0, max_iter=50, tol=1e-8):
     """Newton method with equality constraints using KKT system."""
     x = np.array(x0, dtype=float)
 
-    for i in range(max_iter):
-        try:
-            f_val, f_grad, f_hess = func(x, hessian=True)
-        except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError):
-            print("Failed to evaluate function")
-            break
+    for _ in range(max_iter):
+        f_val, f_grad, f_hess = func(x, hessian=True)
 
-        # Check for NaN/Inf
-        if np.any(np.isnan(f_grad)) or np.any(np.isinf(f_grad)):
-            print("NaN/Inf detected in gradient")
+        # Check for convergence
+        if np.linalg.norm(f_grad) < tol:
             break
-
-        # Ensure f_hess is a proper 2D array
-        if f_hess is None or f_hess.ndim == 0:
-            f_hess = np.eye(len(x)) * 1e-6
-        elif f_hess.ndim == 1:
-            f_hess = np.diag(f_hess)
 
         if A is not None:
             # Handle both 1D and 2D constraint matrices
-            A_mat = np.atleast_2d(A)
-            if A.ndim == 1:
-                A_mat = A.reshape(1, -1)
+            A_mat = np.atleast_2d(A) if A.ndim == 1 else A
             b_vec = np.atleast_1d(b)
 
             n = len(x)
@@ -241,46 +165,18 @@ def newton_equality_constrained(func, A, b, x0, max_iter=50, tol=1e-8):
                 solution = np.linalg.solve(kkt_lhs, kkt_rhs)
                 dx = solution[:n]
             except np.linalg.LinAlgError:
-                try:
-                    solution = np.linalg.pinv(kkt_lhs) @ kkt_rhs
-                    dx = solution[:n]
-                except (np.linalg.LinAlgError, ValueError):
-                    dx = -f_grad * 0.01
+                solution = np.linalg.pinv(kkt_lhs) @ kkt_rhs
+                dx = solution[:n]
         else:
             # Unconstrained Newton step
             try:
-                # Ensure matrix is well-conditioned
-                cond_num = np.linalg.cond(f_hess)
-                if cond_num > 1e12:
-                    # Use regularized version
-                    f_hess_reg = f_hess + (cond_num * 1e-16) * np.eye(len(x))
-                    dx = -np.linalg.solve(f_hess_reg, f_grad)
-                else:
-                    dx = -np.linalg.solve(f_hess, f_grad)
+                dx = -np.linalg.solve(f_hess, f_grad)
             except np.linalg.LinAlgError:
-                try:
-                    dx = -np.linalg.pinv(f_hess) @ f_grad
-                except (ValueError, TypeError, RuntimeError):
-                    # Last resort: steepest descent with small step
-                    dx = -f_grad / (np.linalg.norm(f_grad) + 1e-12) * 0.01
-
-        # Check for valid step
-        if np.any(np.isnan(dx)) or np.any(np.isinf(dx)):
-            dx = -f_grad * 0.001  # Very small steepest descent step
+                dx = -np.linalg.pinv(f_hess) @ f_grad
 
         # Line search
         alpha = backtracking_line_search(func, x, dx, f_grad)
-        x_new = x + alpha * dx
-
-        # Check if new point is valid
-        if np.any(np.isnan(x_new)) or np.any(np.isinf(x_new)):
-            break
-
-        x = x_new
-
-        # Check convergence
-        if np.linalg.norm(f_grad) < tol:
-            break
+        x = x + alpha * dx
 
     return x
 
@@ -289,26 +185,21 @@ def backtracking_line_search(func, x, dx, grad, alpha_init=1.0, rho=0.5,
                              c=1e-4):
     """Backtracking line search with Armijo condition."""
     alpha = alpha_init
-
-    try:
-        f0, _ = func(x)
-    except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError):
-        return 1e-6
-
+    f0, _ = func(x)
     grad_dot_dx = np.dot(grad, dx)
 
-    # If the search direction is not a descent direction, use steepest descent
+    # If not a descent direction, use steepest descent
     if grad_dot_dx >= 0:
         dx = -grad
         grad_dot_dx = -np.dot(grad, grad)
 
-    for _ in range(50):  # Limit iterations
+    for _ in range(50):
         try:
             f_new, _ = func(x + alpha * dx)
             if not (np.isnan(f_new) or np.isinf(f_new)):
                 if f_new <= f0 + c * alpha * grad_dot_dx:
                     return alpha
-        except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError):
+        except:
             pass
         alpha *= rho
         if alpha < 1e-10:

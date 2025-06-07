@@ -149,12 +149,11 @@ class TestConstrainedMin(unittest.TestCase):
         x_range = np.linspace(-0.1, 2.2, 100)
 
         # Constraint lines
-        y1 = -x_range + 1  # y ≥ -x + 1
+        y1 = -x_range + 1  # y = -x + 1
+        vertices_x = [0, 1, 1, 0]  # Close the polygon
+        vertices_y = [1, 1, 0, 1]
 
-        # Fill feasible region
-        x_fill = [0, 1, 2, 2, 0]
-        y_fill = [0, 1, 1, 0, 0]
-        ax1.fill(x_fill, y_fill, alpha=0.3,
+        ax1.fill(vertices_x, vertices_y, alpha=0.3,
                  color='lightblue', label='Feasible Region')
 
         # Plot constraint boundaries
