@@ -72,22 +72,13 @@ def plot_2d_feasible_region_with_path(path, obj_vals, x_final,
                                       convert_to_max=True):
     """
     Create 2D plot showing feasible region and optimization path.
-
-    Args:
-        path: List of points along optimization path
-        obj_vals: Objective values at each iteration
-        x_final: Final solution point
-        title: Plot title
-        convert_to_max: Whether to convert minimization to maximization
-    Returns:
-        fig: matplotlib figure object
     """
     path_array = np.array(path)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     x_range = np.linspace(-0.1, 2.2, 100)
     y1 = -x_range + 1
-    vertices_x = [0, 2, 1, 0]
-    vertices_y = [1, 1, 0, 1]
+    vertices_x = [0, 1, 2, 2, 0]
+    vertices_y = [1, 0, 0, 1, 1]
 
     ax1.fill(vertices_x, vertices_y, alpha=0.3,
              color='lightblue', label='Feasible Region')

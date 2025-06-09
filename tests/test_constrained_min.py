@@ -24,7 +24,8 @@ class TestConstrainedMin(unittest.TestCase):
             x0
         )
 
-        final_obj = qp_objective(x_final)[0]
+        final_obj = qp_objective.objective(x_final)
+
         print(f"Final solution: x={x_final}")
         print(f"Final objective value: {final_obj:.6f}")
         print(f"Constraint x+y+z=1: {np.sum(x_final):.6f}")
@@ -51,13 +52,13 @@ class TestConstrainedMin(unittest.TestCase):
             x0
         )
 
-        final_obj_min = lp_objective(x_final)[0]
+        final_obj_min = lp_objective.objective(x_final)
         final_obj_max = -final_obj_min
         print(f"Final solution: x={x_final}")
         print(f"Final objective value (max x+y): {final_obj_max:.6f}")
         print("Constraint values at final solution:")
         for i, constraint in enumerate(lp_ineq_constraints):
-            g_val, _ = constraint(x_final)
+            g_val = constraint.objective(x_final)
             print(f"  g_{i+1}(x) = {g_val:.6f} (should be ≤ 0)")
 
         # Generate plots
@@ -65,7 +66,7 @@ class TestConstrainedMin(unittest.TestCase):
 
         self.assertGreater(final_obj_max, 0.8)
         for i, constraint in enumerate(lp_ineq_constraints):
-            g_val, _ = constraint(x_final)
+            g_val = constraint.objective(x_final)
             self.assertLessEqual(
                 g_val, 1e-6, f"Constraint {i+1} violated: g(x) = {g_val}")
 
