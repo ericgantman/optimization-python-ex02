@@ -1,6 +1,6 @@
 # Numerical Optimization Programming Ex02
 
-## Implementation Summary
+## Project Overview
 
 This project implements an interior point method for solving constrained optimization problems using the log-barrier approach.
 

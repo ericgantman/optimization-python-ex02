@@ -1,6 +1,6 @@
-from examples import (qp_objective, qp_ineq_constraints,
-                      qp_eq_constraints_mat, qp_eq_constraints_rhs,
-                      lp_objective, lp_ineq_constraints)
+from tests.examples import (qp_objective, qp_ineq_constraints,
+                            qp_eq_constraints_mat, qp_eq_constraints_rhs,
+                            lp_objective, lp_ineq_constraints)
 from src.utils import (plot_3d_simplex_with_path,
                        plot_2d_feasible_region_with_path,
                        save_and_show_plot)
